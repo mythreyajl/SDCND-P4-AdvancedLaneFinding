@@ -4,6 +4,7 @@ import glob
 import os
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+import pickle
 
 
 def extract_corners(img, nx, ny):
@@ -48,7 +49,20 @@ class Calibration:
 
         # Return calibrated camera
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(self.obj_points, self.img_points, self.img_shape, None, None)
+        if ret:
+            print("---Calibrating camera complete.")
+        else:
+            print("---Error. Calibration failed")
         return ret, mtx, dist, rvecs, tvecs
+
+    def store_calib(self):
+        ret, mtx, dist, rvecs, tvecs = self.calibrate_camera()
+        if ret:
+            data = {"mtx": mtx, "dist": dist, "rvecs": rvecs, "tvecs": tvecs}
+            with open('calibration.p', 'wb') as f:
+                pickle.dump(data, f)
+            print("---Pickling data complete.")
+
 
 if __name__=="__main__":
     path = "./camera_cal/*.jpg"
@@ -58,14 +72,14 @@ if __name__=="__main__":
     ny = 6
 
     calib = Calibration(path, nx, ny)
-    ret, mtx, dist, rvecs, tvecs = calib.calibrate_camera()
-
-    for filename in glob.glob(path):
-        test_img = cv2.imread(filename)
-        undist = cv2.undistort(test_img, mtx, dist, None, mtx)
-        cv2.imshow("Distorted image pre-calibration", test_img)
-        cv2.imshow("Undistorted image post-calibration", undist)
-        cv2.waitKey(0)
+    calib.store_calib()
+    #ret, mtx, dist, rvecs, tvecs = calib.calibrate_camera()
+    #for filename in glob.glob(path):
+    #    test_img = cv2.imread(filename)
+    #    undist = cv2.undistort(test_img, mtx, dist, None, mtx)
+    #    cv2.imshow("Distorted image pre-calibration", test_img)
+    #    cv2.imshow("Undistorted image post-calibration", undist)
+    #    cv2.waitKey(0)
 
 
 
