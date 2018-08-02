@@ -42,9 +42,9 @@ def mag_thresh(gray, ksize=3, mag_thresh=(0, 255)):
     return mag_binary
 
 
-def dir_threshold(gray, sobel_kernel=3, thresh=(0, np.pi/2)):
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
+def dir_threshold(gray, ksize=3, thresh=(0, np.pi/2)):
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=ksize)
+    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=ksize)
     abs_sobelx = np.absolute(sobelx)
     abs_sobely = np.absolute(sobely)
     sobel_dir = np.arctan2(abs_sobely, abs_sobelx)
@@ -83,33 +83,32 @@ if __name__=="__main__":
     mtx = data["mtx"]
     dist = data["dist"]
     for filename in glob.glob("./test_images/*jpg"):
+        # Read and apply undistortion
         img = cv2.imread(filename)
         undist = cv2.undistort(img, mtx, dist, None, mtx)
-        # cv2.imshow('Before', img)
-        # cv2.imshow('After', undist)
-        # cv2.waitKey(0)
 
         # Filters
         ksize = 3
         gray = cv2.cvtColor(undist, cv2.COLOR_BGR2GRAY)
-        sat_binary = hls(img)
-        gradx = abs_sobel_thresh(gray, orient='x', sobel_kernel=ksize, thresh=(0, 255))
-        grady = abs_sobel_thresh(gray, orient='y', sobel_kernel=ksize, thresh=(0, 255))
-        mag_binary = mag_thresh(gray, sobel_kernel=ksize, mag_thresh=(0, 255))
-        dir_binary = dir_threshold(gray, sobel_kernel=ksize, thresh=(0, np.pi / 2))
+        sat_binary = hls(img, thresh=(180, 255), ksize=ksize)
+        gradx = abs_sobel_thresh(gray, orient='x', ksize=ksize, thresh=(0, 255))
+        grady = abs_sobel_thresh(gray, orient='y', ksize=ksize, thresh=(0, 255))
+        mag_binary = mag_thresh(gray, ksize=ksize, mag_thresh=(0, 255))
+        dir_binary = dir_threshold(gray, ksize=ksize, thresh=(0, np.pi / 2))
 
+        # Add Morphological operations 'Closing'
         # Warp binary image with mask extremities to make it orthographic
-        warped_img = warp(S, None)
+        warped_img = warp(sat_binary, None)
 
         # Find pixels of interest on L&R and fit a polynomial
         L, R = find_lanes(warped_img)
 
-        # Unwarp the polynomial in camera image
+        # Perspective change the polynomial in camera image
         # Add markers as needed
         # Distort image back to original camera
         # For video, find_lanes changes
 
         # Plot away
-        cv2.imshow('Saturation', 255*S)
+        cv2.imshow('Saturation', 255*warped_img)
         # cv2.imshow('After', undist)
         cv2.waitKey(0)
