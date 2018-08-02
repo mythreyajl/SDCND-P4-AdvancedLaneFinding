@@ -41,12 +41,14 @@ class Calibration:
             ret, corners = extract_corners(img, self.nx, self.ny)
 
             if ret:  # append corners to list of image corners
-                #img = cv2.drawChessboardCorners(img, (nx, ny), corners, ret)
                 self.img_points.append(corners)
                 self.obj_points.append(self.objp)
-                #cv2.imshow('Corners', img)
-                #cv2.waitKey(0)
-
+                """
+                img = cv2.drawChessboardCorners(img, (self.nx, self.ny), corners, ret)
+                cv2.imshow('Corners', img)
+                cv2.waitKey(0)
+                """
+                
         # Return calibrated camera
         ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(self.obj_points, self.img_points, self.img_shape, None, None)
         if ret:
@@ -64,6 +66,8 @@ class Calibration:
             print("---Pickling data complete.")
 
 
+"""
+# A sample script showing the use of the class
 if __name__=="__main__":
     path = "./camera_cal/*.jpg"
 
@@ -72,15 +76,15 @@ if __name__=="__main__":
     ny = 6
 
     calib = Calibration(path, nx, ny)
-    calib.store_calib()
-    #ret, mtx, dist, rvecs, tvecs = calib.calibrate_camera()
-    #for filename in glob.glob(path):
-    #    test_img = cv2.imread(filename)
-    #    undist = cv2.undistort(test_img, mtx, dist, None, mtx)
-    #    cv2.imshow("Distorted image pre-calibration", test_img)
-    #    cv2.imshow("Undistorted image post-calibration", undist)
-    #    cv2.waitKey(0)
-
+    # calib.store_calib()
+    ret, mtx, dist, rvecs, tvecs = calib.calibrate_camera()
+    for filename in glob.glob(path):
+        test_img = cv2.imread(filename)
+        undist = cv2.undistort(test_img, mtx, dist, None, mtx)
+        cv2.imshow("Distorted image pre-calibration", test_img)
+        cv2.imshow("Undistorted image post-calibration", undist)
+        cv2.waitKey(0)
+"""
 
 
 
