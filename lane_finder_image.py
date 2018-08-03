@@ -54,7 +54,7 @@ def dir_threshold(gray, ksize=3, thresh=(0, np.pi/2)):
     return dir_binary
 
 
-def hls(img, thresh=(200,255), ksize=3):
+def hls(img, thresh=(200, 255)):
     # Saturation channel
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
     sat = hls[:, :, 2]
@@ -64,14 +64,10 @@ def hls(img, thresh=(200,255), ksize=3):
     return sat_binary
 
 
-def warp(img, bb):
-    return img
-    """
-    src = np.float32([corners[0], corners[7], corners[40], corners[47]])
-    dst = np.float32([[100,100],[1200,100],[100,860],[1200,860]])
+def warp(img, src, dst):
     M = cv2.getPerspectiveTransform(src, dst)
-    warped = cv2.warpPerspective(undist, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR)
-    """
+    warped = cv2.warpPerspective(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR)
+    return warped
 
 
 def find_lanes(img):
@@ -82,26 +78,35 @@ if __name__=="__main__":
     data = pickle.load(open("calibration.p", 'rb'))
     mtx = data["mtx"]
     dist = data["dist"]
-    for filename in glob.glob("./test_images/*jpg"):
+    for filename in glob.glob("./undist_test_images/*jpg"):
         # Read and apply undistortion
-        img = cv2.imread(filename)
-        undist = cv2.undistort(img, mtx, dist, None, mtx)
+        undist = cv2.imread(filename)
+        #undist = cv2.undistort(img, mtx, dist, None, mtx)
 
         # Filters
-        ksize = 3
+        k = 3
         gray = cv2.cvtColor(undist, cv2.COLOR_BGR2GRAY)
-        sat_binary = hls(img, thresh=(180, 255), ksize=ksize)
-        gradx = abs_sobel_thresh(gray, orient='x', ksize=ksize, thresh=(0, 255))
-        grady = abs_sobel_thresh(gray, orient='y', ksize=ksize, thresh=(0, 255))
-        mag_binary = mag_thresh(gray, ksize=ksize, mag_thresh=(0, 255))
-        dir_binary = dir_threshold(gray, ksize=ksize, thresh=(0, np.pi / 2))
+        sat_binary = hls(undist, thresh=(180, 255))
+        gradx = abs_sobel_thresh(gray, orient='x', ksize=k, thresh=(100, 255))
+        grady = abs_sobel_thresh(gray, orient='y', ksize=k, thresh=(100, 255))
+        mag_binary = mag_thresh(gray, ksize=k, mag_thresh=(100, 255))
+        dir_binary = dir_threshold(gray, ksize=k, thresh=(-np.pi / 2, np.pi / 2))
 
-        # Add Morphological operations 'Closing'
+        # Add Morphological operations to the combined image
+        combined = np.zeros_like(dir_binary)
+        combined[((gradx == 1) & (grady == 1)) | ((mag_binary == 1) & (dir_binary == 1)) | (sat_binary == 1)] = 1
+        kernel = np.ones((3, 3), np.uint8)
+        opened_bin = cv2.morphologyEx(src=combined, op=cv2.MORPH_OPEN, kernel=kernel)
+        closed_bin = cv2.morphologyEx(src=combined, op=cv2.MORPH_CLOSE, kernel=kernel)
+
         # Warp binary image with mask extremities to make it orthographic
-        warped_img = warp(sat_binary, None)
+        src = np.float32([[600, 550], [685, 550], [205, 720], [1120, 720]])
+        dst = np.float32([[200, 0], [1000, 0], [300, 720], [1000, 720]])
+        warped_img_c = warp(closed_bin, src, dst)
+        warped_img_s = warp(combined, src, dst)
 
         # Find pixels of interest on L&R and fit a polynomial
-        L, R = find_lanes(warped_img)
+        L, R = find_lanes(warped_img_c)
 
         # Perspective change the polynomial in camera image
         # Add markers as needed
@@ -109,6 +114,9 @@ if __name__=="__main__":
         # For video, find_lanes changes
 
         # Plot away
-        cv2.imshow('Saturation', 255*warped_img)
+        img_name = filename[filename.rfind('/')+1:]
+        cv2.imshow(img_name, 255 * warped_img_c)
+        # cv2.imshow('Closed: ' + img_name, 255*warped_img_c)
+        # cv2.imshow('Unclosed ' +  img_name, 255*warped_img_s)
         # cv2.imshow('After', undist)
         cv2.waitKey(0)

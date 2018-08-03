@@ -12,6 +12,5 @@ if __name__=='__main__':
     for filename in glob.glob("./test_images/*.jpg"):
         test_img = cv2.imread(filename)
         undist = cv2.undistort(test_img, mtx, dist, None, mtx)
-        cv2.imshow('Before', test_img)
-        cv2.imshow('After', undist)
-        cv2.waitKey(0)
+
+        cv2.imwrite("./undist_test_images/"+filename[filename.rfind('/'):], undist)
