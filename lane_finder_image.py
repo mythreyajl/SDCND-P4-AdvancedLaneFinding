@@ -64,6 +64,29 @@ def hls(img, thresh=(200, 255)):
     return sat_binary
 
 
+def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
+    img = np.copy(img)
+    # Convert to HLS color space and separate the V channel
+    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+    l_channel = hls[:, :, 1]
+    s_channel = hls[:, :, 2]
+    # Sobel x
+    sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
+    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
+
+    # Threshold x gradient
+    sxbinary = np.zeros_like(scaled_sobel)
+    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+
+    # Threshold color channel
+    s_binary = np.zeros_like(s_channel)
+    s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
+    # Stack each channel
+    color_binary = np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255
+    return color_binary
+
+
 def warp(img, src, dst):
     M = cv2.getPerspectiveTransform(src, dst)
     warped = cv2.warpPerspective(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR)
@@ -100,10 +123,11 @@ if __name__=="__main__":
         closed_bin = cv2.morphologyEx(src=combined, op=cv2.MORPH_CLOSE, kernel=kernel)
 
         # Warp binary image with mask extremities to make it orthographic
-        src = np.float32([[600, 550], [685, 550], [205, 720], [1120, 720]])
-        dst = np.float32([[200, 0], [1000, 0], [300, 720], [1000, 720]])
-        warped_img_c = warp(closed_bin, src, dst)
-        warped_img_s = warp(combined, src, dst)
+        src = np.float32([[610, 440], [675, 440], [205, 720], [1120, 720]])
+        dst = np.float32([[300, 0], [1000, 0], [300, 720], [1000, 720]])
+        warped_img_a = warp(closed_bin, src, dst)
+        warped_img_b = warp(combined, src, dst)
+        warped_img_c = warp(sat_binary, src, dst)
 
         # Find pixels of interest on L&R and fit a polynomial
         L, R = find_lanes(warped_img_c)
@@ -115,8 +139,9 @@ if __name__=="__main__":
 
         # Plot away
         img_name = filename[filename.rfind('/')+1:]
-        cv2.imshow(img_name, 255 * warped_img_c)
-        # cv2.imshow('Closed: ' + img_name, 255*warped_img_c)
-        # cv2.imshow('Unclosed ' +  img_name, 255*warped_img_s)
+        # cv2.imshow(img_name, 255 * warped_img_c)
+        cv2.imshow('Closed:     ' + img_name, 255*warped_img_a)
+        cv2.imshow('Unclosed:   ' + img_name, 255*warped_img_b)
+        cv2.imshow('Saturation: ' + img_name, 255*warped_img_c)
         # cv2.imshow('After', undist)
         cv2.waitKey(0)
