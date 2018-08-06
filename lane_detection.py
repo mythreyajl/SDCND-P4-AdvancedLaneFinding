@@ -20,7 +20,7 @@ dist = data["dist"]
 src = np.float32([[580, 460], [707, 460], [187, 720], [1125, 720]])
 dst = np.float32([[200, 0], [1000, 0], [200, 720], [1000, 720]])
 
-initialised = False
+initialized = False
 
 
 class Lane:
@@ -37,6 +37,19 @@ class Lane:
         self.diffs = np.array([0, 0, 0], dtype='float')     # difference in fit coefficients between last and new fits
         self.allx = None                                    # x values for detected line pixels
         self.ally = None                                    # y values for detected line pixels
+        self.n = 10                                         # number of iterations to keep memory for
+
+    def update(self, det, xfit):
+        self.detected = det
+        self.recent_xfitted.append(xfit)
+        if len(self.recent_xfitted) > self.n:
+            self.recent_xfitted.pop(0)
+        self.bestx = np.average(self.recent_xfitted)
+        self.current_fit = xfit
+
+
+LEFT = Lane()
+RIGHT = Lane()
 
 
 def warp(img, src, dst):
@@ -192,6 +205,8 @@ def fit_polynomial(binary_warped):
     # TO-DO: Fit a second order polynomial to each using `np.polyfit` ###
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
+    LEFT.current_fit = left_fit
+    RIGHT.current_fit = right_fit
 
     # Generate x and y values for plotting
     ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
@@ -223,7 +238,7 @@ def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, 
     pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
     pts = np.hstack((pts_left, pts_right))
 
- # Draw the lane onto the warped blank image
+    # Draw the lane onto the warped blank image
     cv2.fillPoly(lane_warp, np.int_([pts]), (0, 255, 0))
     bounds_warp[lefty, leftx] = [0, 0, 255]
     bounds_warp[righty, rightx] = [255, 0, 0]
@@ -239,6 +254,75 @@ def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, 
     return result
 
 
+def fit_poly(img_shape, leftx, lefty, rightx, righty):
+    ### TO-DO: Fit a second order polynomial to each with np.polyfit() ###
+    left_fit = np.polyfit(lefty, leftx, 2)
+    right_fit = np.polyfit(righty, rightx, 2)
+    LEFT.current_fit = left_fit
+    RIGHT.current_fit = right_fit
+
+    # Generate x and y values for plotting
+    ploty = np.linspace(0, img_shape[0]-1, img_shape[0])
+    ### TO-DO: Calc both polynomials using ploty, left_fit and right_fit ###
+    left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+    right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+
+    return left_fitx, right_fitx, ploty
+
+
+def search_around_poly(binary_warped):
+    # HYPERPARAMETER
+    # Choose the width of the margin around the previous polynomial to search
+    # The quiz grader expects 100 here, but feel free to tune on your own!
+    margin = 100
+
+    # Grab activated pixels
+    nonzero = binary_warped.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
+
+    # Setting the search area based on previous frame's polynomial
+    polyleft = LEFT.current_fit[0] * nonzeroy ** 2 + LEFT.current_fit[1] * nonzeroy + LEFT.current_fit[2]
+    left_lane_inds = ((nonzerox >= polyleft - margin) & (nonzerox < polyleft + margin))
+    polyright = RIGHT.current_fit[0] * nonzeroy ** 2 + RIGHT.current_fit[1] * nonzeroy + RIGHT.current_fit[2]
+    right_lane_inds = ((nonzerox >= polyright - margin) & (nonzerox < polyright + margin))
+
+    # Again, extract left and right line pixel positions
+    leftx = nonzerox[left_lane_inds]
+    lefty = nonzeroy[left_lane_inds]
+    rightx = nonzerox[right_lane_inds]
+    righty = nonzeroy[right_lane_inds]
+
+    # Fit new polynomials
+    left_fitx, right_fitx, ploty = fit_poly(binary_warped.shape, leftx, lefty, rightx, righty)
+
+    ## Visualization ##
+    # Create an image to draw on and an image to show the selection window
+    out_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
+    window_img = np.zeros_like(out_img)
+    # Color in left and right line pixels
+    out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+    out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+
+    # Generate a polygon to illustrate the search window area
+    # And recast the x and y points into usable format for cv2.fillPoly()
+    left_line_window1 = np.array([np.transpose(np.vstack([left_fitx - margin, ploty]))])
+    left_line_window2 = np.array([np.flipud(np.transpose(np.vstack([left_fitx + margin,
+                                                                    ploty])))])
+    left_line_pts = np.hstack((left_line_window1, left_line_window2))
+    right_line_window1 = np.array([np.transpose(np.vstack([right_fitx - margin, ploty]))])
+    right_line_window2 = np.array([np.flipud(np.transpose(np.vstack([right_fitx + margin,
+                                                                     ploty])))])
+    right_line_pts = np.hstack((right_line_window1, right_line_window2))
+
+    # Draw the lane onto the warped blank image
+    cv2.fillPoly(window_img, np.int_([left_line_pts]), (0, 255, 0))
+    cv2.fillPoly(window_img, np.int_([right_line_pts]), (0, 255, 0))
+    result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
+
+    return result, left_fitx, right_fitx, ploty, leftx, lefty, rightx, righty
+
+
 def detect_lanes(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
 
     # Undistort incoming image
@@ -252,24 +336,18 @@ def detect_lanes(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
     # Warp the image according to previously decided image points
     warped, Minv = warp(opened_bin, src, dst)
 
-    # Fit polynomials to warped points
-    fitted, lfx, rfx, ply, lx, ly, rx, ry = fit_polynomial(warped)
+    global initialized
+    if initialized == False:
+        fitted, lfx, rfx, ply, lx, ly, rx, ry = fit_polynomial(warped)
+        initialized = True
+    else:
+        fitted, lfx, rfx, ply, lx, ly, rx, ry = search_around_poly(warped)
 
     # Draw lane markings and lane area
     overlaid = draw_lanes(image=undist, warped=warped, Minv=Minv, left_fitx=lfx, right_fitx=rfx, ploty=ply, leftx=lx,
                           lefty=ly, rightx=rx, righty=ry)
 
     return overlaid
-
-
-def track_lanes():
-
-    pass
-
-
-def find_lanes(img):
-
-    return detect_lanes(img)
 
 
 if __name__ == "__main__":
@@ -289,5 +367,5 @@ if __name__ == "__main__":
     # Read Video
     output = 'output_' + video_name + '.mp4'
     clip1 = VideoFileClip(vid)
-    white_clip = clip1.fl_image(find_lanes)  # NOTE: this function expects color images!!
+    white_clip = clip1.fl_image(detect_lanes)  # NOTE: this function expects color images!!
     white_clip.write_videofile(output, audio=False)
