@@ -489,7 +489,9 @@ if __name__ == "__main__":
         cv2.imwrite("./output_images/opened_" + img_name, 255*opened)
         cv2.imwrite("./output_images/closed_" + img_name, 255*closed)
         cv2.imwrite("./output_images/warped_" + img_name, 255*warped)
+        cv2.imwrite("./output_images/output_" + img_name, img)
 
+        cv2.imshow("./output_images/output_" + img_name, img )
         cv2.imshow("./output_images/filtered_" + img_name, 255*comb)
         cv2.imshow("./output_images/opened_" + img_name, 255*opened)
         cv2.imshow("./output_images/closed_" + img_name, 255*closed)
