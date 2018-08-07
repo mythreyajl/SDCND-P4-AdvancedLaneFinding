@@ -28,6 +28,7 @@ The goals / steps of this project are the following:
 [image7]: ./output_images/opened_test1.jpg "Opened"
 [image8]: ./test_images/straight_lines1.jpg "Original"
 [image9]: ./output_images/warped_straight_lines1.jpg "Warped"
+[image10]: ./output_images/output_test1.jpg "Output"
 [video1]: ./project_video.mp4 "Video"
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
@@ -65,7 +66,7 @@ Here is the undistortion process applied to examples images provided to us:
 ![alt text][image4]
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
-I filtered the image based on its x-gradient, y-gradient, gradient-magnitude, gradient-diretion and saturation channel. Following this, I applied morphological operations to 'close' and then 'open' the thus obtained image. The morphological operations helped in removing black holes in lane markings and the white specks elsewhere. I used the closed image in the rest of the algorithm. These are all captured in the function filter_image between line 95 and 144 and in the detect_lanes in lines 366-368.
+I filtered the image based on its x-gradient, y-gradient, gradient-magnitude, gradient-diretion and saturation channel. Following this, I applied morphological operations to 'close' and then 'open' the thus obtained image. The morphological operations helped in removing black holes in lane markings and the white specks elsewhere. I used the closed image in the rest of the algorithm. These are all captured in the function `filter_image` between line 95 and 144 and in the `detect_lanes_standalone` in lines 366-368.
 
 ![alt text][image3]
 ![alt text][image5]
@@ -98,26 +99,24 @@ This resulted in the following source and destination points:
 | 1125,720      | 1000, 720     |
 | 707, 460      | 1000, 0       |
 
-I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
+I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image. For this I wrote a script called `warp.py`
 
 ![alt text][image8]
 ![alt text][image9]
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
+On perspective warping each filtered image. I applied histograms of pixel intensities of the binary images and looked for peaks corresponding to left and right lane lines. This I applied in a windowed fashion to get region peaks and thus collect all relevant pixels of lanes (`find_lane_pixels` lines 147-234 in `lane_detection.py`). Using all the pixels, I fitted a parabola (2nd order polynomial) to find the equation of the lane markers that best fit the given points (`fit_polynomial` lines 237-271). In subsequent frames, I used the previous frames polynomial to simplify the search ( `search_around_poly` and `fit_poly`). However, I used a temporal filtering approach with 5 previous frames to have some sort of a consistency in the polynomial fitting. Most of the latter code is contained in the `Lane` class in lines 26 - 81.
 
-Then I did some other stuff and fit my lane lines with a 2nd order polynomial kinda like this:
-
-![alt text][image5]
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
-I did this in lines # through # in my code in `my_other_file.py`
+Radius of curvature is in the `Lane` class (lines 53-58) in `lane_detection.py` and offset is in line 406 in `detect_lane_video`. I calculated the radius of curvature as developed in the formula in the course. However, I needed to find the radius in real world coordinates for which I used the scaling factor. For finding offset, I found the base pixels' x locations. From this I calculated the center of the lane and its offset from the bottom center of the image. I scaled this by the meters per pixel provided in the course to get real world offset. I report both of these quantities in the video.
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
-I implemented this step in lines # through # in my code in `yet_another_file.py` in the function `map_lane()`.  Here is an example of my result on a test image:
+I used the `draw_lanes` function in lines 415-452 of `lane_detection.py` to obtain the lane area. I also showed the offset and curvature overlaid on the image. Further, I show the detected lane marking pixels that I used to calculate the green lane area.
 
-![alt text][image6]
+![alt text][image10]
 
 ---
 
@@ -125,12 +124,14 @@ I implemented this step in lines # through # in my code in `yet_another_file.py`
 
 #### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
 
-Here's a [link to my video result](./project_video.mp4)
+Here's a [link to my video result](./output_project_video.mp4)
 
 ---
 
 ### Discussion
 
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+Some problems were that the image filtering wasn't producing salient lanes. I added morphological operations to the existing pipeline. Further, I used temporal consistency in the pipeline using the previous frames to predict a good polynomial. However, if the distance between the previous prediction and the current one were too much, I trigger a new detection to avoid tracking bad frames. 
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.  
+My pipeline will likely fail in poor contrast areas and areas with high curvature in the roads, since my perspective unwarpping expects the lane lines to fully lie in the unwarped section. In order to make it more robust, I would fit cubic splines in the images in 2D corrdinates itself.
+
