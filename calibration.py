@@ -66,7 +66,7 @@ class Calibration:
             print("---Pickling data complete.")
 
 
-"""
+
 # A sample script showing the use of the class
 if __name__=="__main__":
     path = "./camera_cal/*.jpg"
@@ -76,6 +76,8 @@ if __name__=="__main__":
     ny = 6
 
     calib = Calibration(path, nx, ny)
+    path_prefix = path[:path.rfind('/')+1]
+
     # calib.store_calib()
     ret, mtx, dist, rvecs, tvecs = calib.calibrate_camera()
     for filename in glob.glob(path):
@@ -83,8 +85,10 @@ if __name__=="__main__":
         undist = cv2.undistort(test_img, mtx, dist, None, mtx)
         cv2.imshow("Distorted image pre-calibration", test_img)
         cv2.imshow("Undistorted image post-calibration", undist)
+        fname = filename[filename.rfind('/')+1:]
+        cv2.imwrite(path_prefix + "undistorted_" + fname, undist)
         cv2.waitKey(0)
-"""
+
 
 
 

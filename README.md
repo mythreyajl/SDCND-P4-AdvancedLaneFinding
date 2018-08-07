@@ -19,12 +19,15 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-[image1]: ./undist_test_images/test1.jpg "Undistorted"
-[image2]: ./test_images/test1.jpg "Road Transformed"
-[image3]: ./examples/binary_combo_example.jpg "Binary Example"
-[image4]: ./examples/warped_straight_lines.jpg "Warp Example"
-[image5]: ./examples/color_fit_lines.jpg "Fit Visual"
-[image6]: ./examples/example_output.jpg "Output"
+[image1]: ./camera_cal/calibration5.jpg "Original"
+[image2]: ./camera_cal/undistorted_calibration5.jpg "Undistorted"
+[image3]: ./test_images/test1.jpg "Original"
+[image4]: ./undist_test_images/test1.jpg "Undistorted"
+[image5]: ./output_images/filtered_test1.jpg "Filtered"
+[image6]: ./output_images/closed_test1.jpg "Closed"
+[image7]: ./output_images/opened_test1.jpg "Opened"
+[image8]: ./test_images/straight_lines1.jpg "Original"
+[image9]: ./output_images/warped_straight_lines1.jpg "Warped"
 [video1]: ./project_video.mp4 "Video"
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
@@ -43,29 +46,34 @@ Provided this file - writeup.md.
 
 #### 1. Briefly state how you computed the camera matrix and distortion coefficients. Provide an example of a distortion corrected calibration image.
 
-The code for this step is contained in the first code cell of the IPython notebook located in "./examples/example.ipynb" (or in lines # through # of the file called `some_file.py`).  
+The code for this step is present in the 'calibration.py' script. The script reads all the images using the glob package, calculates the distortion parameters and the camera matrix and stores them into a pickle file. The way I intended to apply calibration in my project is as an offline, pre-processing step to reduce runtime complexity of the actual algorithm. During runtime, I load the pickle file and just extract the camera matrix and distortion parameters.
 
-I start by preparing "object points", which will be the (x, y, z) coordinates of the chessboard corners in the world. Here I am assuming the chessboard is fixed on the (x, y) plane at z=0, such that the object points are the same for each calibration image.  Thus, `objp` is just a replicated array of coordinates, and `objpoints` will be appended with a copy of it every time I successfully detect all chessboard corners in a test image.  `imgpoints` will be appended with the (x, y) pixel position of each of the corners in the image plane with each successful chessboard detection.  
+The calibration class reads in one image at a time. From this it extracts the corner locations of each of the chessboard corners. These corners are assumed to be in a fixed (x, y, z(=0)) location in the world. The top left interior corner is assumed to be the origin of the world. The width of each of the checkers is assumed to be unit 1. Therefore there is a mapping from each corner in the image to their original locations in the world. A matrix called `imgpoints` stores each of the image locations and another called `objpoints` stores the locations in real world. This is a repeated matrix of `objp`, the original locations of all corners.
 
-I then used the output `objpoints` and `imgpoints` to compute the camera calibration and distortion coefficients using the `cv2.calibrateCamera()` function.  I applied this distortion correction to the test image using the `cv2.undistort()` function and obtained this result: 
+These are fed to the `cv2.calibrateCamera()` to solve for distortion parameters, the camera projection matrix. During runtime, I use these parameters as arguments to the `cv2.undistort()` function as a starting step in my pipeline. Here's an example of distortion corrected calibration image:
 
 ![alt text][image1]
+![alt text][image2]
+
+Also 
 
 ### Pipeline (single images)
 
 #### 1. Provide an example of a distortion-corrected image.
-
-To demonstrate this step, I will describe how I apply the distortion correction to one of the test images like this one:
-![alt text][image2]
+Here is the undistortion process applied to examples images provided to us: 
+![alt text][image3]
+![alt text][image4]
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
-
-I used a combination of color and gradient thresholds to generate a binary image (thresholding steps at lines # through # in `another_file.py`).  Here's an example of my output for this step.  (note: this is not actually from one of the test images)
+I filtered the image based on its x-gradient, y-gradient, gradient-magnitude, gradient-diretion and saturation channel. Following this, I applied morphological operations to 'close' and then 'open' the thus obtained image. The morphological operations helped in removing black holes in lane markings and the white specks elsewhere. I used the closed image in the rest of the algorithm. These are all captured in the function filter_image between line 95 and 144 and in the detect_lanes in lines 366-368.
 
 ![alt text][image3]
+![alt text][image5]
+![alt text][image6]
+![alt text][image7]
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
-
+I perform warping in a method called `warp()` in lines 87 to 92. In order to warp points, I figured a mapping between a straight image and where it should appear in the perspective transformed image. 
 The code for my perspective transform includes a function called `warper()`, which appears in lines 1 through 8 in the file `example.py` (output_images/examples/example.py) (or, for example, in the 3rd code cell of the IPython notebook).  The `warper()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points.  I chose the hardcode the source and destination points in the following manner:
 
 ```python
@@ -87,12 +95,13 @@ This resulted in the following source and destination points:
 |:-------------:|:-------------:| 
 | 580, 460      | 200, 0        | 
 | 187, 720      | 200, 720      |
-| 1125,720      | 1200, 720      |
-| 707, 460      | 960, 0        |
+| 1125,720      | 1000, 720     |
+| 707, 460      | 1000, 0       |
 
 I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
 
-![alt text][image4]
+![alt text][image8]
+![alt text][image9]
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 

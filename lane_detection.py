@@ -140,6 +140,7 @@ def filter_image(img,
     color_binary = np.dstack((sybinary, sxbinary, s_binary)) * 255
     combined = np.zeros_like(sybinary)
     combined[((sybinary == 1) & (sxbinary == 1)) | ((mag_binary == 1) & (dir_binary == 1)) | (s_binary == 1)] = 1
+
     return color_binary, combined
 
 
@@ -354,7 +355,30 @@ def search_around_poly(binary_warped):
     return result, op_lfx, op_rfx, LEFT.ploty, leftx, lefty, rightx, righty
 
 
-def detect_lanes(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
+def detect_lanes_standalone(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
+
+    global LEFT, RIGHT, initialized
+
+    # Undistort incoming image
+    undist = cv2.undistort(img, mtx, dist, None, mtx)
+
+    # Filter and obtain best image for lane detection
+    color, comb = filter_image(undist)
+    closed_bin = cv2.morphologyEx(src=comb, op=cv2.MORPH_CLOSE, kernel=kernel)
+    opened_bin = cv2.morphologyEx(src=closed_bin, op=cv2.MORPH_OPEN, kernel=kernel)
+
+    # Warp the image according to previously decided image points
+    warped, Minv = warp(opened_bin, src, dst)
+    fitted, lfx, rfx, ply, lx, ly, rx, ry = fit_polynomial(warped)
+
+    # Draw lane markings and lane area
+    overlaid = draw_lanes(image=undist, warped=warped, Minv=Minv, left_fitx=lfx, right_fitx=rfx, ploty=ply, leftx=lx,
+                          lefty=ly, rightx=rx, righty=ry)
+
+    return overlaid, comb, closed_bin, opened_bin, warped
+
+
+def detect_lanes_video(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
 
     global LEFT, RIGHT, initialized
 
@@ -385,11 +409,10 @@ def detect_lanes(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
     overlaid = draw_lanes(image=undist, warped=warped, Minv=Minv, left_fitx=lfx, right_fitx=rfx, ploty=ply, leftx=lx,
                           lefty=ly, rightx=rx, righty=ry, offset=offset, curvature=curvature)
 
-
     return overlaid
 
 
-def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, rightx, righty, offset, curvature):
+def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, rightx, righty, offset=None, curvature=None):
 
     # Prepare images to be used for drawing
     warp_zero = np.zeros_like(warped).astype(np.uint8)
@@ -415,15 +438,16 @@ def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, 
     result = cv2.addWeighted(result, 1.0, bounds_warped, 0.3, 0)
 
     text1 = ""
-    if curvature > 5000:
-        text1 = "Straight road ahead"
-    else:
-        text1 = "Radius of curvature = " + str(curvature) + " meters"
-    text2 = "Vehicle is " + str(offset) + " meters from center of lane"
-    result = cv2.putText(img=result, text=text1, org=(100, 100), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                         fontScale=0.75, color=(255, 255, 255), thickness=2)
-    result = cv2.putText(img=result, text=text2, org=(100, 130), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                         fontScale=0.75, color=(255, 255, 255), thickness=2)
+    if curvature:
+        if curvature > 5000:
+            text1 = "Straight road ahead"
+        else:
+            text1 = "Radius of curvature = " + str(curvature) + " meters"
+        text2 = "Vehicle is " + str(offset) + " meters from center of lane"
+        result = cv2.putText(img=result, text=text1, org=(100, 100), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                             fontScale=0.75, color=(255, 255, 255), thickness=2)
+        result = cv2.putText(img=result, text=text2, org=(100, 130), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                             fontScale=0.75, color=(255, 255, 255), thickness=2)
 
     return result
 
@@ -431,19 +455,44 @@ def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, 
 if __name__ == "__main__":
 
     # Parse from command line
-    parser = argparse.ArgumentParser(description="Detect lane markers and drivable space from video")
-    parser.add_argument('-v', '--video', dest="video", help='Input file to be processed', required=True)
+    parser = argparse.ArgumentParser(description="Detect lane markers and drivable space from video. Provide only one of the below two options")
+    parser.add_argument('-v', '--video', dest="video", help='Input file to be processed')
+    parser.add_argument('-s', '--standalone', dest="standalone", help='Run pipeline on a single example image')
     args = parser.parse_args()
 
-    if not args.video:
-        print("Didn't provide an input video")
+    if not args.video and not args.standalone:
+        print("Didn't provide an input video or a standalone image.")
         exit()
 
-    vid = args.video
-    video_name = vid[:vid.rfind(".")]
+    if args.video and args.standalone:
+        print("Provided both options. Rerun and choose one.")
+        exit()
 
-    # Read Video
-    output = 'output_' + video_name + '.mp4'
-    clip1 = VideoFileClip(vid)
-    white_clip = clip1.fl_image(detect_lanes)  # NOTE: this function expects color images!!
-    white_clip.write_videofile(output, audio=False) # , progress_bar=False)
+    if args.video:
+        vid = args.video
+        video_name = vid[:vid.rfind(".")]
+
+        # Read Video
+        output = 'output_' + video_name + '.mp4'
+        clip1 = VideoFileClip(vid)
+        white_clip = clip1.fl_image(detect_lanes_video)  # NOTE: this function expects color images!!
+        white_clip.write_videofile(output, audio=False)  # , progress_bar=False)
+
+    if args.standalone:
+        img_path = args.standalone
+        img_name = img_path[img_path.rfind("/")+1:]
+        img = cv2.imread(img_path)
+        cv2.imshow(img_name, img)
+        #cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img, comb, opened, closed, warped = detect_lanes_standalone(img)
+        cv2.imwrite("./output_images/filtered_" + img_name, 255*comb)
+        cv2.imwrite("./output_images/opened_" + img_name, 255*opened)
+        cv2.imwrite("./output_images/closed_" + img_name, 255*closed)
+        cv2.imwrite("./output_images/warped_" + img_name, 255*warped)
+
+        cv2.imshow("./output_images/filtered_" + img_name, 255*comb)
+        cv2.imshow("./output_images/opened_" + img_name, 255*opened)
+        cv2.imshow("./output_images/closed_" + img_name, 255*closed)
+        cv2.imshow("./output_images/warped_" + img_name, 255*warped)
+        cv2.waitKey(0)
+
