@@ -19,5 +19,5 @@ warped = cv2.cvtColor(warped[0], cv2.COLOR_BGR2RGB)
 cv2.imshow('original', image)
 cv2.imshow('warped', 255*warped)
 
-cv2.imwrite('./output_images/warped_straight_lines1.jpg', 255*warped[0])
+cv2.imwrite('./output_images/warped_straight_lines1.jpg', 255*warped)
 cv2.waitKey(0)
