@@ -5,6 +5,7 @@ import pickle
 import glob
 import matplotlib.pyplot as plt
 import argparse
+import csv
 
 # Import everything needed to edit/save/watch video clips
 from moviepy.editor import VideoFileClip
@@ -37,7 +38,9 @@ class Lane:
         self.allx = None                                    # x values for detected line pixels
         self.ally = None                                    # y values for detected line pixels
         self.n = 5                                          # number of iterations to keep memory for
-        self.polty = None                                   # storing the plotting y dimension
+        self.ploty = None                                   # storing the plotting y dimension
+        self.ym_per_pix = 30/720                            # meters per pixel in y dimension
+        self.xm_per_pix = 3.7/700                           # meters per pixel in x dimension
 
     def update_poly(self, poly):
         self.current_fit.append(poly)
@@ -46,6 +49,13 @@ class Lane:
         if len(self.current_fit) > 1:
             self.diffs = self.current_fit[-1] - self.current_fit[-2]
         self.best_fit = np.mean(self.current_fit, axis=0)
+
+        # Evaluating curvature
+        fit = poly
+        y_eval = np.max(self.ploty)
+        x = fit[0] * self.ploty ** 2 + fit[1] * self.ploty + fit[2]
+        fit_cr = np.polyfit(self.ploty * self.ym_per_pix, x * self.xm_per_pix, 2)
+        self.radius_of_curvature = np.sqrt((1 + (2 * fit_cr[0] * y_eval * self.ym_per_pix + fit_cr[1])**2)**3)/np.absolute(2*fit_cr[0])
 
     def update_x(self, xfit):
         self.recent_xfitted.append(xfit)
@@ -230,16 +240,17 @@ def fit_polynomial(binary_warped):
     # Find our lane pixels first
     leftx, lefty, rightx, righty, out_img = find_lane_pixels(binary_warped)
 
-    # TO-DO: Fit a second order polynomial to each using `np.polyfit` ###
-    left_fit = np.polyfit(lefty, leftx, 2)
-    right_fit = np.polyfit(righty, rightx, 2)
-    LEFT.current_fit.append(left_fit)
-    RIGHT.current_fit.append(right_fit)
-
     # Generate x and y values for plotting
-    ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0])
+    ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
     LEFT.ploty = ploty
     RIGHT.ploty = ploty
+
+    # Fit a second order polynomial to each using `np.polyfit` ###
+    left_fit = np.polyfit(lefty, leftx, 2)
+    right_fit = np.polyfit(righty, rightx, 2)
+    LEFT.update_poly(left_fit)
+    RIGHT.update_poly(right_fit)
+
     try:
         left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
         right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
@@ -364,14 +375,21 @@ def detect_lanes(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
     else:
         fitted, lfx, rfx, ply, lx, ly, rx, ry = search_around_poly(warped)
 
+    # Prints
+    # 1. Curvature
+    curvature = (RIGHT.radius_of_curvature + LEFT.radius_of_curvature)/2
+    # 2. Offset of vehicle from center
+    offset = (img.shape[1] - (LEFT.recent_xfitted[-1][-1] + RIGHT.recent_xfitted[-1][-1]))/2 * LEFT.xm_per_pix
+
     # Draw lane markings and lane area
     overlaid = draw_lanes(image=undist, warped=warped, Minv=Minv, left_fitx=lfx, right_fitx=rfx, ploty=ply, leftx=lx,
-                          lefty=ly, rightx=rx, righty=ry)
+                          lefty=ly, rightx=rx, righty=ry, offset=offset, curvature=curvature)
+
 
     return overlaid
 
 
-def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, rightx, righty):
+def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, rightx, righty, offset, curvature):
 
     # Prepare images to be used for drawing
     warp_zero = np.zeros_like(warped).astype(np.uint8)
@@ -385,8 +403,8 @@ def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, 
 
     # Draw the lane onto the warped blank image
     cv2.fillPoly(lane_warp, np.int_([pts]), (0, 255, 0))
-    bounds_warp[lefty, leftx] = [0, 0, 255]
-    bounds_warp[righty, rightx] = [255, 0, 0]
+    bounds_warp[lefty, leftx] = [255, 0, 0]
+    bounds_warp[righty, rightx] = [0, 0, 255]
 
     # Warp the blank back to original image space using inverse perspective matrix (Minv)
     lane_warped = cv2.warpPerspective(lane_warp, Minv, (image.shape[1], image.shape[0]))
@@ -394,7 +412,18 @@ def draw_lanes(image, warped, left_fitx, right_fitx, ploty, Minv, leftx, lefty, 
 
     # Combine the result with the original image
     result = cv2.addWeighted(image, 1.0, lane_warped, 0.3, 0)
-    result = cv2.addWeighted(result, 0.5, bounds_warped, 0.3, 0)
+    result = cv2.addWeighted(result, 1.0, bounds_warped, 0.3, 0)
+
+    text1 = ""
+    if curvature > 5000:
+        text1 = "Straight road ahead"
+    else:
+        text1 = "Radius of curvature = " + str(curvature) + " meters"
+    text2 = "Vehicle is " + str(offset) + " meters from center of lane"
+    result = cv2.putText(img=result, text=text1, org=(100, 100), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                         fontScale=0.75, color=(255, 255, 255), thickness=2)
+    result = cv2.putText(img=result, text=text2, org=(100, 130), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                         fontScale=0.75, color=(255, 255, 255), thickness=2)
 
     return result
 
@@ -417,4 +446,4 @@ if __name__ == "__main__":
     output = 'output_' + video_name + '.mp4'
     clip1 = VideoFileClip(vid)
     white_clip = clip1.fl_image(detect_lanes)  # NOTE: this function expects color images!!
-    white_clip.write_videofile(output, audio=False)
+    white_clip.write_videofile(output, audio=False) # , progress_bar=False)
