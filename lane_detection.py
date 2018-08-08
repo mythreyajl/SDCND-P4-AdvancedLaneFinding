@@ -22,6 +22,7 @@ src = np.float32([[580, 460], [707, 460], [187, 720], [1125, 720]])
 dst = np.float32([[200, 0], [1000, 0], [200, 720], [1000, 720]])
 
 initialized = False
+write_counter = 0
 
 class Lane:
 
@@ -64,15 +65,12 @@ class Lane:
         diff = np.sum(np.square(self.diffs))
 
         if diff > 500:
-            self.bestx = self.recent_xfitted[-1]
             self.recent_xfitted.clear()
             self.recent_xfitted.append(self.bestx)
-            self.best_fit = self.current_fit[-1]
             self.current_fit.clear()
             self.current_fit.append(self.best_fit)
         else:
             self.bestx = np.mean(self.recent_xfitted, axis=0)
-
     def update_pix(self, x, y):
         self.allx = x
         self.ally = y
@@ -106,9 +104,11 @@ def filter_image(img,
     l_channel = hls[:, :, 1]
     s_channel = hls[:, :, 2]
 
-    # Threshold color channel
+    # Threshold color channels
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
+    l_binary = np.zeros_like(l_channel)
+    l_binary[(l_channel >= 50) & (l_channel <= 255)] = 1
 
     # Sobel x
     sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
@@ -139,7 +139,7 @@ def filter_image(img,
     # Stack each channel
     color_binary = np.dstack((sybinary, sxbinary, s_binary)) * 255
     combined = np.zeros_like(sybinary)
-    combined[((sybinary == 1) & (sxbinary == 1)) | ((mag_binary == 1) & (dir_binary == 1)) | (s_binary == 1)] = 1
+    combined[(((sybinary == 1) & (sxbinary == 1)) | ((mag_binary == 1) & (dir_binary == 1)) | (s_binary == 1)) & (l_binary == 1)] = 1
 
     return color_binary, combined
 
@@ -160,7 +160,7 @@ def find_lane_pixels(binary_warped):
 
     # Set parameters for window search
     nwindows = 9  # Choose the number of sliding windows
-    margin = 100  # Set the width of the windows +/- margin
+    margin = 50  # Set the width of the windows +/- margin
     minpix = 50   # Set minimum number of pixels found to recenter window
 
     # Set height of windows - based on nwindows above and image shape
@@ -299,7 +299,7 @@ def search_around_poly(binary_warped):
     global LEFT, RIGHT
 
     # Margin to search around previous polynomial
-    margin = 100
+    margin = 30
 
     # Grab activated pixels
     nonzero = binary_warped.nonzero()
@@ -307,10 +307,10 @@ def search_around_poly(binary_warped):
     nonzerox = np.array(nonzero[1])
 
     # Setting the search area based on previous frame's polynomial
-    left_poly = LEFT.current_fit[-1]
+    left_poly = LEFT.best_fit
     polyleft = left_poly[0] * nonzeroy ** 2 + left_poly[1] * nonzeroy + left_poly[2]
     left_lane_inds = ((nonzerox >= polyleft - margin) & (nonzerox < polyleft + margin))
-    right_poly = RIGHT.current_fit[-1]
+    right_poly = RIGHT.best_fit
     polyright = right_poly[0] * nonzeroy ** 2 + right_poly[1] * nonzeroy + right_poly[2]
     right_lane_inds = ((nonzerox >= polyright - margin) & (nonzerox < polyright + margin))
 
@@ -375,12 +375,17 @@ def detect_lanes_standalone(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=
     overlaid = draw_lanes(image=undist, warped=warped, Minv=Minv, left_fitx=lfx, right_fitx=rfx, ploty=ply, leftx=lx,
                           lefty=ly, rightx=rx, righty=ry)
 
+    # Write outputs to files
+    cv2.imwrite("./temp/image_overlaid.jpg", overlaid)
+    cv2.imwrite("./temp/image_undisted.jpg", undist)
+    cv2.imwrite("./temp/image_filtered.jpg", 255*closed_bin)
+
     return overlaid, comb, closed_bin, opened_bin, warped
 
 
 def detect_lanes_video(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
 
-    global LEFT, RIGHT, initialized
+    global LEFT, RIGHT, initialized, write_counter
 
     # Undistort incoming image
     undist = cv2.undistort(img, mtx, dist, None, mtx)
@@ -409,6 +414,18 @@ def detect_lanes_video(img, kernel=np.ones((3, 3), np.uint8), src=src, dst=dst):
     overlaid = draw_lanes(image=undist, warped=warped, Minv=Minv, left_fitx=lfx, right_fitx=rfx, ploty=ply, leftx=lx,
                           lefty=ly, rightx=rx, righty=ry, offset=offset, curvature=curvature)
 
+    # Write outputs to files
+    cv2.imwrite("./processing/overlaid/image_" + str(write_counter) + "_overlaid.jpg",
+                cv2.cvtColor(overlaid, cv2.COLOR_RGB2BGR))                                      # write final overlay
+    """
+    cv2.imwrite("./processing/undisted/image_" + str(write_counter) + "_undisted.jpg",
+            cv2.cvtColor(undist, cv2.COLOR_RGB2BGR))                                            # write final overlay
+    cv2.imwrite("./processing/original/image_" + str(write_counter) + "_original.jpg",
+                cv2.cvtColor(img, cv2.COLOR_RGB2BGR))                                           # write original
+    cv2.imwrite("./processing/filtered/image_" + str(write_counter) + "_filtered.jpg",
+                255*closed_bin)                                                                 # write final overlay
+    """
+    write_counter += 1
     return overlaid
 
 
@@ -476,25 +493,26 @@ if __name__ == "__main__":
         output = 'output_' + video_name + '.mp4'
         clip1 = VideoFileClip(vid)
         white_clip = clip1.fl_image(detect_lanes_video)  # NOTE: this function expects color images!!
-        white_clip.write_videofile(output, audio=False)  # , progress_bar=False)
+        white_clip.write_videofile(output, audio=False)
 
-    if args.standalone:
+    if args.standalone:#
         img_path = args.standalone
         img_name = img_path[img_path.rfind("/")+1:]
         img = cv2.imread(img_path)
         cv2.imshow(img_name, img)
         #cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img, comb, opened, closed, warped = detect_lanes_standalone(img)
+        """
         cv2.imwrite("./output_images/filtered_" + img_name, 255*comb)
         cv2.imwrite("./output_images/opened_" + img_name, 255*opened)
         cv2.imwrite("./output_images/closed_" + img_name, 255*closed)
         cv2.imwrite("./output_images/warped_" + img_name, 255*warped)
         cv2.imwrite("./output_images/output_" + img_name, img)
 
-        cv2.imshow("./output_images/output_" + img_name, img )
+        cv2.imshow("./output_images/output_" + img_name, img)
         cv2.imshow("./output_images/filtered_" + img_name, 255*comb)
         cv2.imshow("./output_images/opened_" + img_name, 255*opened)
         cv2.imshow("./output_images/closed_" + img_name, 255*closed)
         cv2.imshow("./output_images/warped_" + img_name, 255*warped)
         cv2.waitKey(0)
-
+        """
